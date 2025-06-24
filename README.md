@@ -121,10 +121,6 @@ The application provides two types of logging:
 - **Browser Profile**: A persistent Chrome profile is maintained to avoid repeated logins
 - **Network Requirements**: Ensure stable internet connection for reliable automation
 
-## License
-
-This project is for educational and personal use. Please ensure compliance with UW Madison's terms of service and academic policies.
-
 ## Disclaimer
 
 This tool is provided as-is for educational purposes. Users are responsible for ensuring their use complies with university policies and regulations. The authors are not responsible for any issues arising from the use of this automation tool.
