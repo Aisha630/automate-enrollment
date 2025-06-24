@@ -1,7 +1,7 @@
 [project]
 name = "automate-enrollment"
 version = "0.1.0"
-description = "Add your description here"
+description = "Automate enrolling in courses in the cart for UW Madison"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
@@ -10,3 +10,10 @@ dependencies = [
     "playwright>=1.52.0",
     "python-dotenv>=1.1.0",
 ]
+[tool.autopep8]
+max_line_length = 100         
+indent_size = 4               
+aggressive = 3                
+in-place = true               
+recursive = true              
+exclude = ".venv"

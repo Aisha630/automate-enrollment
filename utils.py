@@ -3,10 +3,11 @@ import logging
 import colorlog
 
 
-URL="https://enroll.wisc.edu/my-courses"
+URL = "https://enroll.wisc.edu/my-courses"
 
-TIMEOUT_MAX = 60 * 3 * 1000  # 5 minutes in milliseconds
+TIMEOUT_MAX = 60 * 3 * 1000  # 3 minutes in milliseconds
 SCREENSHOTS_DIR = "screenshots"
+
 
 def init_logging():
     logger = logging.getLogger('enrollment')
@@ -27,6 +28,7 @@ def init_logging():
     logger.addHandler(console_handler)
 
     file_handler = logging.FileHandler(f'enrollment.log', mode='w')
-    file_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+    file_handler.setFormatter(logging.Formatter(
+        '%(asctime)s - %(levelname)s - %(message)s'))
     logger.addHandler(file_handler)
     return logger

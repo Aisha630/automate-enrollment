@@ -23,14 +23,13 @@ class Enrollment:
         if not os.getenv("NET_ID") or not os.getenv("PASSWORD"):
             logger.error(
                 "Environment variables NET_ID and PASSWORD must be set.")
-            return 
-        if not self.semester:
+            return
+        if not self.semester.strip():
             logger.error("Semester must be specified.")
             return
 
         os.makedirs(self.profile_dir, exist_ok=True)
         os.makedirs(SCREENSHOTS_DIR, exist_ok=True)
-
 
     def run(self):
         with sync_playwright() as p:
@@ -43,17 +42,14 @@ class Enrollment:
             self.navigate_to_enrollment()
             self.enroll()
 
-
     def navigate_to_enrollment(self):
         self.page.goto(URL)
         self.page.reload(wait_until="networkidle")
-        logger.info(f"Navigated to {URL}")
         if self.page.is_visible("#j_username"):
             logger.info(f"Logging in with NET_ID: {os.getenv('NET_ID')}")
             self.page.fill("input[id='j_username']", os.getenv("NET_ID"))
             self.page.fill("input[id='j_password']", os.getenv("PASSWORD"))
             self.page.click("button[name='_eventId_proceed']")
-
 
     def enroll(self):
         """
@@ -65,9 +61,16 @@ class Enrollment:
             return
 
         # Select the correct term from the drop down before selecting cart
-        self.page.wait_for_selector("#mat-select-value-1 > span")
-        self.page.click("#mat-select-value-1 > span")
-        self.page.click(f"mat-option:has-text('{self.semester}')")
+        try:
+            self.page.wait_for_selector("#mat-select-value-1 > span")
+            self.page.click("#mat-select-value-1 > span")
+            self.page.click(f"mat-option:has-text('{self.semester}')")
+        except Exception as e:
+            logger.error(
+                f"Failed to select the semester '{
+                    self.semester}'. Please ensure it is available in the dropdown.")
+            logger.exception(e)
+            return
 
         # Select the cart
         self.page.wait_for_selector(
@@ -130,11 +133,10 @@ class Enrollment:
 
             self.page.screenshot(path=Path(
                 SCREENSHOTS_DIR) / f"enrollment_success_{self.try_number}_{time.time()}.png")
-            
+
             # Click on 'Close' button to close the self.page
             close_btn.click()
             logger.info("Closed the enrollment dialog.")
-            time.sleep(3)
 
 
 def main():
