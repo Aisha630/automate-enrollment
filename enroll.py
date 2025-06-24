@@ -7,7 +7,6 @@ from dotenv import load_dotenv
 from utils import *
 from pathlib import Path
 
-
 logger = init_logging()
 
 
@@ -20,16 +19,17 @@ class Enrollment:
 
     def __post_init__(self):
         load_dotenv()
-        if not os.getenv("NET_ID") or not os.getenv("PASSWORD"):
-            logger.error(
-                "Environment variables NET_ID and PASSWORD must be set.")
-            return
-        if not self.semester.strip():
-            logger.error("Semester must be specified.")
-            return
 
-        os.makedirs(self.profile_dir, exist_ok=True)
-        os.makedirs(SCREENSHOTS_DIR, exist_ok=True)
+        if not os.getenv("NET_ID") or not os.getenv("PASSWORD"):
+            logger.error("Environment variables NET_ID and PASSWORD must be set.")
+            raise ValueError("Missing credentials in .env")
+
+        if not self.semester:
+            logger.error("Semester must be specified.")
+            raise ValueError("Missing semester")
+
+        Path(self.profile_dir).mkdir(exist_ok=True)
+        Path(SCREENSHOTS_DIR).mkdir(exist_ok=True)
 
     def run(self):
         with sync_playwright() as p:
@@ -39,104 +39,101 @@ class Enrollment:
             )
             self.page = browser.new_page()
             self.page.set_default_timeout(TIMEOUT_MAX)
+
             self.navigate_to_enrollment()
             self.enroll()
 
     def navigate_to_enrollment(self):
         self.page.goto(URL)
         self.page.reload(wait_until="networkidle")
-        if self.page.is_visible("#j_username"):
-            logger.info(f"Logging in with NET_ID: {os.getenv('NET_ID')}")
-            self.page.fill("input[id='j_username']", os.getenv("NET_ID"))
-            self.page.fill("input[id='j_password']", os.getenv("PASSWORD"))
-            self.page.click("button[name='_eventId_proceed']")
+
+        if self.page.is_visible(SELECTORS["username"]):
+            logger.info(f"Logging in as {os.getenv('NET_ID')}")
+            self.page.fill(SELECTORS["username"], os.getenv("NET_ID"))
+            self.page.fill(SELECTORS["password"], os.getenv("PASSWORD"))
+            self.page.click(SELECTORS["login_button"])
+
+    def select_semester(self):
+        try:
+            self.page.wait_for_selector(SELECTORS["term_dropdown"])
+            self.page.click(SELECTORS["term_dropdown"])
+            self.page.click(SELECTORS["term_option"](self.semester))
+            logger.info(f"Selected semester: {self.semester}")
+        except Exception as e:
+            logger.error(f"Failed to select semester: {self.semester}")
+            logger.exception(e)
+            raise
+
+    def open_cart(self):
+        self.page.wait_for_selector(SELECTORS["cart_button"])
+        self.page.click(SELECTORS["cart_button"])
+        logger.info("Opened course cart")
+
+    def attempt_enrollment(self) -> bool:
+        self.try_number += 1
+        logger.debug(f"Attempt #{self.try_number} to enroll")
+
+        # Check all checkboxes
+        self.page.wait_for_selector(SELECTORS["checkboxes"])
+        checkboxes = self.page.query_selector_all(SELECTORS["checkboxes"])
+
+        if not checkboxes:
+            logger.error("No courses in cart or checkboxes not found.")
+            return False
+
+        for checkbox in checkboxes:
+            if not checkbox.is_checked():
+                checkbox.click()
+
+        # Revalidate cart
+        logger.info("Revalidating cart...")
+        self.page.click(SELECTORS["revalidate_btn"])
+
+        # Enroll
+        logger.info("Clicking 'Enroll' button...")
+        self.page.click(SELECTORS["enroll_btn"])
+
+        # Wait for and interact with the enrollment dialog
+        dialog = self.page.locator(SELECTORS["dialog"])
+        dialog.get_by_text(SELECTORS["enroll_confirm"], exact=True).click()
+
+        logger.info("Waiting for confirmation...")
+        close_btn = dialog.get_by_text(SELECTORS["close_btn"], exact=True)
+        close_btn.wait_for(state="visible")
+
+        invalid_appt_text = dialog.get_by_text(SELECTORS["invalid_appt"], exact=True)
+        cancel_icon = dialog.locator(SELECTORS["unsuccessful_enrollment"])
+
+        if invalid_appt_text.is_visible():
+            logger.warning("Invalid appointment. Will retry.")
+            screenshot_path = Path(SCREENSHOTS_DIR) / \
+                f"invalid_appt_{self.try_number}_{int(time.time())}.png"
+            self.page.screenshot(path=screenshot_path)
+            close_btn.click()
+            return False
+        elif cancel_icon.is_visible():
+            logger.warning(
+                "One or more course enrollment unsuccessful due to reasons other than invalid appointment.")
+            screenshot_path = Path(SCREENSHOTS_DIR) / \
+                f"failed_attempt_{self.try_number}_{int(time.time())}.png"
+            self.page.screenshot(path=screenshot_path)
+            exit(0)
+
+        logger.info("All course enrollments successful!")
+        success_path = Path(SCREENSHOTS_DIR) / \
+            f"complete_success_{self.try_number}_{int(time.time())}.png"
+        self.page.screenshot(path=success_path)
+        close_btn.click()
+        return True
 
     def enroll(self):
-        """
-        Enroll in the specified semester.
-        """
-        if not self.semester:
-            logger.error(
-                "Semester not set. Please set the semester before enrolling.")
-            return
+        self.select_semester()
+        self.open_cart()
 
-        # Select the correct term from the drop down before selecting cart
-        try:
-            self.page.wait_for_selector("#mat-select-value-1 > span")
-            self.page.click("#mat-select-value-1 > span")
-            self.page.click(f"mat-option:has-text('{self.semester}')")
-        except Exception as e:
-            logger.error(
-                f"Failed to select the semester '{
-                    self.semester}'. Please ensure it is available in the dropdown.")
-            logger.exception(e)
-            return
-
-        # Select the cart
-        self.page.wait_for_selector(
-            "#categories > section > section > cse-category-indicator:nth-child(1) > button > span.left.grow")
-        self.page.click(
-            "#categories > section > section > cse-category-indicator:nth-child(1) > button > span.left.grow")
-
-        not_successful = True
-        while not_successful:
-
-            self.try_number += 1
-            logger.debug(
-                f"Attempt {self.try_number} to enroll in {self.semester}")
-
-            # Check all courses in cart
-            self.page.wait_for_selector("input[type='checkbox']")
-            checkboxes = self.page.query_selector_all("input[type='checkbox']")
-            if not checkboxes:
-                logger.error(
-                    "No checkboxes found in the cart. Please ensure the page is loaded correctly or if you have something in the cart.")
+        while True:
+            if self.attempt_enrollment():
                 return
-            for checkbox in checkboxes:
-                if not checkbox.is_checked():
-                    checkbox.click()
-
-            # Validate the cart using 'Revalidate' button
-            logger.info("Revalidating cart...")
-            self.page.wait_for_selector(
-                "#list > section > section > cse-category-actions-component > div > div > button:nth-child(2)")
-            self.page.click(
-                "#list > section > section > cse-category-actions-component > div > div > button:nth-child(2)")
-
-            # Click on 'Enroll' button
-            logger.info("Clicking on 'Enroll' button...")
-            self.page.wait_for_selector(
-                "#list > section > section > cse-category-actions-component > div > div > button:nth-child(3) > span.mdc-button__label")
-            self.page.click(
-                "#list > section > section > cse-category-actions-component > div > div > button:nth-child(3) > span.mdc-button__label")
-
-            # Wait for the popup to load and click on 'Enroll' button on the popup
-            logger.info("Waiting for 'Enroll' button in the popup...")
-            dialog = self.page.locator("mat-dialog-container.mdc-dialog--open")
-            dialog.get_by_text("Enroll", exact=True).click()
-
-            logger.info("Enrollment in progress...")
-
-            # Wait for 'Close' button to appear
-            close_btn = dialog.get_by_text("Close", exact=True)
-            close_btn.wait_for(state="visible")
-
-            invalid_appt = dialog.get_by_text(
-                "You do not have a valid enrollment appointment at this time.").first
-
-            if invalid_appt.is_visible():
-                logger.warning(
-                    "You do not have a valid enrollment appointment at this time. Retrying...")
-            else:
-                not_successful = False
-                logger.info("Enrollment successful!")
-
-            self.page.screenshot(path=Path(
-                SCREENSHOTS_DIR) / f"enrollment_success_{self.try_number}_{time.time()}.png")
-
-            # Click on 'Close' button to close the self.page
-            close_btn.click()
-            logger.info("Closed the enrollment dialog.")
+            logger.info("\nRetrying...")
 
 
 def main():
