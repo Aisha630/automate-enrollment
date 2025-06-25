@@ -79,7 +79,7 @@ uv run enroll.py
 7. **Validation**: Revalidates the cart before enrollment
 8. **Enrollment**: Attempts to enroll in all selected courses
 9. **Retry Logic**: If enrollment fails due to invalid appointment time, it retries continuously
-10. **Documentation**: Takes screenshots and logs all activities
+10. **Documentation**: Takes screenshots and logs all activities to .log file
 
 ## Project Structure
 
